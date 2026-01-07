@@ -65,7 +65,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ROBUST DATABASE LOADER (Fixes "Unsupported Type" Error) ---
+# --- 2. ROBUST DATABASE LOADER ---
 @st.cache_resource
 def load_encodings():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -85,7 +85,6 @@ def load_encodings():
                 img_path = os.path.join(root, file)
                 
                 # Parse Folder Name: Name_Dept_Role_ID
-                # Example: MusaBello_ICT_Analyst_1197
                 folder_name = os.path.basename(root)
                 parts = folder_name.split('_')
                 
@@ -98,23 +97,18 @@ def load_encodings():
                     role = parts[2]
                     staff_id = parts[3]
                 elif root != path:
-                    name = folder_name # Fallback if underscores are missing
+                    name = folder_name
 
-                # Formatting Name
                 name = name.replace("_", " ")
 
                 try:
-                    # FORCE READ AS RGB (Fixes 'Unsupported image type')
+                    # FORCE READ AS RGB
                     img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+                    if img is None: continue
                     
-                    if img is None:
-                        continue
-                    
-                    # Ensure 8-bit format for dlib
                     img = np.array(img, dtype=np.uint8)
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     
-                    # Detect Face
                     encs = face_recognition.face_encodings(img)
                     
                     if encs:
@@ -124,7 +118,6 @@ def load_encodings():
                         ids.append(staff_id)
                         print(f"✅ Loaded: {name}")
                 except Exception as e:
-                    print(f"❌ Error loading {file}: {e}")
                     pass
                     
     return encodings, names, roles, ids
@@ -147,7 +140,6 @@ with st.sidebar:
 st.title("NBTI Smart Attendance")
 st.markdown("#### 📍 ICT Department Dashboard")
 
-# Stats Grid
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total Staff", len(set(known_names)) if known_names else 0)
 c2.metric("Department", "ICT")
@@ -173,9 +165,8 @@ class AttendanceProcessor(VideoProcessorBase):
 
         self.frame_count += 1
         
-        # Process every 3rd frame to improve speed
+        # Process every 3rd frame
         if self.frame_count % 3 == 0 and known_encodings:
-            # Resize for speed (0.5x)
             small_frame = cv2.resize(img, (0, 0), fx=0.5, fy=0.5)
             rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
             
@@ -195,37 +186,34 @@ class AttendanceProcessor(VideoProcessorBase):
                         name = known_names[best_match_idx]
                         role = known_roles[best_match_idx]
                 
-                # Scale coordinates back up (x2)
                 top, right, bottom, left = loc
                 top, right, bottom, left = top*2, right*2, bottom*2, left*2
                 
-                # DRAWING UI
-                # Green for known, Red for unknown
                 color = (46, 125, 50) if name != "Unknown" else (0, 0, 255) 
                 
-                # 1. Bounding Box
                 cv2.rectangle(img, (left, top), (right, bottom), color, 2)
-                
-                # 2. Name Tag Background
                 cv2.rectangle(img, (left, bottom - 40), (right, bottom), color, cv2.FILLED)
-                
-                # 3. Text
                 cv2.putText(img, name, (left + 10, bottom - 10), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255,255,255), 1)
                 
-                # 4. Role (Floating above)
                 if role:
                      cv2.putText(img, role, (left, top - 10), cv2.FONT_HERSHEY_PLAIN, 1.2, color, 2)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# --- 5. STREAMER ---
+# --- 5. STREAMER (FIXED NETWORK CONFIG) ---
+# We now use 3 Google STUN servers to prevent timeouts
+rtc_config = RTCConfiguration({
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {"urls": ["stun:stun2.l.google.com:19302"]},
+    ]
+})
+
 ctx = webrtc_streamer(
     key="attendance",
     video_processor_factory=AttendanceProcessor,
-    # GOOGLE STUN SERVER FIXES TIMEOUT ISSUES
-    rtc_configuration=RTCConfiguration({
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-    }),
+    rtc_configuration=rtc_config,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
@@ -233,5 +221,4 @@ ctx = webrtc_streamer(
 if ctx.video_processor:
     ctx.video_processor.update_settings(mirror)
 
-# Footer
 st.markdown("<br><hr><div style='text-align: center; color: #888;'>NBTI ICT Department System</div>", unsafe_allow_html=True)
