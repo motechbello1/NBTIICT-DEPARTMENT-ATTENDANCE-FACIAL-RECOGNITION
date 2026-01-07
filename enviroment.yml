@@ -1,15 +1,14 @@
 name: attendance_app
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - python=3.9
   - dlib
-  - numpy
-  - opencv
   - pip
   - pip:
+    - opencv-python-headless
     - streamlit
     - face-recognition
     - streamlit-webrtc
+    - numpy
     - av
