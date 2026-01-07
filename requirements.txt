@@ -1,0 +1,10 @@
+streamlit
+numpy
+# We use cmake to help build dlib
+cmake
+# We install dlib from a pre-built wheel if possible, or build it
+dlib
+face-recognition
+opencv-python-headless
+streamlit-webrtc
+av
