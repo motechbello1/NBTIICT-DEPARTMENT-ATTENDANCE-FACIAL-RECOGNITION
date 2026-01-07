@@ -4,15 +4,13 @@ import face_recognition
 import os
 import av
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
-from cvzone.FaceMeshModule import FaceMeshDetector
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="NBTI Smart Attendance", layout="wide")
 st.title("NBTI ICT Department: Smart Attendance")
 
 # --- 1. LOAD DATABASE ---
-# This runs once and saves time
 @st.cache_resource
 def load_encodings():
     path = 'ImagesAttendance'
@@ -60,8 +58,6 @@ if not known_encodings:
 # --- 2. WEBRTC PROCESSOR ---
 class AttendanceProcessor(VideoProcessorBase):
     def __init__(self):
-        self.detector = FaceMeshDetector(maxFaces=1)
-        # Scan every 5th frame to prevent freezing
         self.process_every = 5
         self.count = 0
         self.last_res = []
@@ -70,9 +66,6 @@ class AttendanceProcessor(VideoProcessorBase):
         img = frame.to_ndarray(format="bgr24")
         img = cv2.flip(img, 1)
         self.count += 1
-        
-        # Detect Face Mesh (Blink)
-        img, faces = self.detector.findFaceMesh(img, draw=False)
         
         # Face Recognition Logic (Throttled)
         if self.count % self.process_every == 0:
