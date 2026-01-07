@@ -6,231 +6,174 @@ import av
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
-# --- 1. PAGE CONFIGURATION & DARK THEME ---
+# --- 1. PAGE CONFIG & CSS FOR FULL WIDTH VIDEO ---
 st.set_page_config(page_title="NBTI Smart Attendance", layout="wide", page_icon="🛡️")
 
-# Custom CSS: Dark Mode (Black, Dark Grey, Green, Beige Text)
 st.markdown("""
     <style>
-    /* Main Background - Dark Charcoal */
-    .stApp {
-        background-color: #121212;
-    }
-    
-    /* Text Colors - Off-White/Beige for readability */
-    h1, h2, h3, p, div, label, span {
-        color: #e0e0e0 !important;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-
-    /* Sidebar - Pure Black */
-    [data-testid="stSidebar"] {
-        background-color: #000000;
-        border-right: 1px solid #333;
-    }
-
-    /* Metrics/Stats Cards - Dark Grey */
-    div[data-testid="stMetricValue"] {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
+    /* Force Video to be Wide */
+    video {
+        width: 100% !important;
+        height: auto !important;
         border-radius: 10px;
-        padding: 10px;
-        color: #4CAF50 !important; /* Bright Green */
+        border: 2px solid #333;
     }
     
-    /* Buttons - Green */
-    .stButton>button {
-        background-color: #2e7d32;
-        color: white !important;
-        border-radius: 8px;
-        border: none;
-        padding: 10px 24px;
-        font-weight: bold;
-    }
-    .stButton>button:hover {
-        background-color: #1b5e20;
-    }
-
-    /* Error/Success Messages */
-    .stAlert {
-        background-color: #1e1e1e;
-        color: #e0e0e0;
-        border: 1px solid #333;
-    }
+    /* Dark Theme Colors */
+    .stApp { background-color: #121212; }
+    h1, h2, h3, p, label { color: #e0e0e0 !important; }
+    div[data-testid="stMetricValue"] { background-color: #1e1e1e; color: #4CAF50 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ROBUST DATABASE LOADER (RECURSIVE) ---
+# --- 2. DATABASE LOADER WITH DEBUGGING ---
 @st.cache_resource
 def load_encodings():
-    base_dir = os.path.dirname(__file__)
+    # Force absolute path to avoid confusion
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base_dir, 'ImagesAttendance')
     
     encodings = []
     names = []
+    debug_log = [] # To store success/failure reasons
     
     if not os.path.exists(path):
-        return [], []
+        return [], [], ["Folder not found"]
         
-    # Walk through ALL directories to find images inside sub-folders
     for root, dirs, files in os.walk(path):
         for file in files:
             if file.lower().endswith(('.jpg', '.jpeg', '.png')):
                 img_path = os.path.join(root, file)
                 
-                # Try to extract name from folder name first (per your screenshot structure)
-                # Structure seems to be: ImagesAttendance/Name_Dept_Role/Image.jpg
-                folder_name = os.path.basename(root)
-                
-                # If image is directly in ImagesAttendance, use filename
-                if root == path:
-                    person_name = os.path.splitext(file)[0]
+                # Extract Name
+                # If inside subfolder, use folder name, else filename
+                if root != path:
+                    folder_name = os.path.basename(root)
+                    person_name = folder_name.split('_')[0] # Take first part "DavidAdamu"
                 else:
-                    # Parse the folder name "BelloMuhammadMustapha_ICT_..."
-                    # We take the first part before the first underscore as the name
-                    # or just use the whole folder name if you prefer.
-                    parts = folder_name.split('_')
-                    if len(parts) > 0:
-                         # Joins "Bello" "Muhammad" "Mustapha" if they are separated
-                         # Modify this logic if your naming convention is different
-                         person_name = parts[0] 
-                    else:
-                        person_name = folder_name
-
-                # Clean up name display
+                    person_name = os.path.splitext(file)[0]
+                
                 person_name = person_name.replace("_", " ")
 
                 try:
+                    # Load Image
                     img = cv2.imread(img_path)
-                    if img is None: continue
+                    if img is None:
+                        debug_log.append(f"❌ {file}: Failed to load (corrupt?)")
+                        continue
+                        
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     
-                    # Find faces
-                    face_locations = face_recognition.face_locations(img)
-                    if face_locations:
-                        encode = face_recognition.face_encodings(img, face_locations)[0]
-                        encodings.append(encode)
+                    # Detect Faces (Try Upscaling if small)
+                    # number_of_times_to_upsample=1 helps find smaller faces
+                    encs = face_recognition.face_encodings(img, num_jitters=1, model='small')
+                    
+                    if not encs:
+                         # Fallback: Try finding face locations first with upsizing
+                        locs = face_recognition.face_locations(img, number_of_times_to_upsample=2)
+                        encs = face_recognition.face_encodings(img, locs)
+
+                    if encs:
+                        encodings.append(encs[0])
                         names.append(person_name)
-                        print(f"Loaded: {person_name}")
+                        debug_log.append(f"✅ {person_name}: Loaded")
+                    else:
+                        debug_log.append(f"⚠️ {file}: Image loaded, but NO FACE detected.")
+                        
                 except Exception as e:
-                    print(f"Skipping {file}: {e}")
+                    debug_log.append(f"❌ {file}: Error - {str(e)}")
                     pass
                     
-    return encodings, names
+    return encodings, names, debug_log
 
-known_encodings, known_names = load_encodings()
+known_encodings, known_names, debug_info = load_encodings()
 
-# --- 3. UI HEADER ---
+# --- 3. HEADER & STATS ---
 st.title("NBTI Smart Attendance")
-st.markdown("#### 📍 ICT Department | Facial Recognition System")
+c1, c2, c3 = st.columns(3)
+c1.metric("Database Status", "Online" if known_encodings else "Empty")
+c2.metric("Profiles Loaded", len(set(known_names)))
+c3.metric("System", "Active")
 
-# Stats Row
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("System Status", "Online" if known_encodings else "Waiting for Database")
-with col2:
-    st.metric("Staff Profiles", len(known_names))
-with col3:
-    st.metric("Active Camera", "Ready")
-
-st.markdown("---")
-
-# --- 4. VIDEO PROCESSOR ---
+# --- 4. VIDEO PROCESSOR (FIXED MIRROR) ---
 class AttendanceProcessor(VideoProcessorBase):
     def __init__(self):
         self.frame_count = 0
-        self.process_every_n_frames = 2  # Process every 2nd frame for speed
-        self.last_results = []
-        self.mirror_mode = True  # Default
+        self.mirror = True # Default to True
 
-    def update_settings(self, mirror):
-        self.mirror_mode = mirror
+    def update_settings(self, mirror_on):
+        self.mirror = mirror_on
 
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
         
-        # Mirror Flip (Controlled by user)
-        if self.mirror_mode:
+        # 1. APPLY MIRROR IMMEDIATELY
+        if self.mirror:
             img = cv2.flip(img, 1)
 
+        # 2. FACE RECOGNITION (Every 2nd frame)
         self.frame_count += 1
-
-        # Skip frames to save CPU (Crucial for Cloud)
-        if self.frame_count % self.process_every_n_frames == 0:
-            # Resize small for fast processing (1/2 size)
+        if self.frame_count % 2 == 0 and known_encodings:
+            
+            # Optimization: Resize frame to 0.5x for faster processing
             small_frame = cv2.resize(img, (0, 0), fx=0.5, fy=0.5)
-            rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+            rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
             
-            # Detect
-            face_locations = face_recognition.face_locations(rgb_small_frame)
-            face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
-
-            current_results = []
-            for face_encoding, face_location in zip(face_encodings, face_locations):
-                matches = face_recognition.compare_faces(known_encodings, face_encoding, tolerance=0.5)
+            faces = face_recognition.face_locations(rgb_small)
+            encs = face_recognition.face_encodings(rgb_small, faces)
+            
+            for encode, loc in zip(encs, faces):
+                matches = face_recognition.compare_faces(known_encodings, encode, tolerance=0.55)
+                dist = face_recognition.face_distance(known_encodings, encode)
+                
                 name = "Unknown"
-
                 if True in matches:
-                    first_match_index = matches.index(True)
-                    name = known_names[first_match_index]
+                    best_match_idx = np.argmin(dist)
+                    if dist[best_match_idx] < 0.55:
+                        name = known_names[best_match_idx]
+                
+                # Scale Coords back to 1.0x
+                top, right, bottom, left = loc
+                top, right, bottom, left = top*2, right*2, bottom*2, left*2
+                
+                # Draw Box
+                color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
+                cv2.rectangle(img, (left, top), (right, bottom), color, 2)
+                cv2.putText(img, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
 
-                # Scale coordinates back up (x2)
-                top, right, bottom, left = face_location
-                top *= 2
-                right *= 2
-                bottom *= 2
-                left *= 2
-
-                current_results.append((name, (left, top, right, bottom)))
-            
-            self.last_results = current_results
-
-        # Draw results (User sees this every frame)
-        for name, (left, top, right, bottom) in self.last_results:
-            # Color: Green for Known, Red for Unknown
-            color = (46, 125, 50) if name != "Unknown" else (0, 0, 255)
-            
-            # Box
-            cv2.rectangle(img, (left, top), (right, bottom), color, 2)
-            
-            # Label
-            cv2.rectangle(img, (left, bottom - 35), (right, bottom), color, cv2.FILLED)
-            cv2.putText(img, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
+        # 3. DEBUG OVERLAY (Shows Mirror Status on Screen)
+        status_text = "MIRROR: ON" if self.mirror else "MIRROR: OFF"
+        cv2.putText(img, status_text, (20, 40), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 0), 1)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# --- 5. MAIN VIDEO SECTION ---
-# Mirror Toggle
-mirror_check = st.checkbox("Mirror Camera (Flip View)", value=True)
+# --- 5. MAIN UI ---
+st.write("---")
+toggle = st.checkbox("Mirror Camera", value=True)
 
-# WebRTC Streamer (Full Width)
 ctx = webrtc_streamer(
-    key="attendance-app",
+    key="attendance",
     video_processor_factory=AttendanceProcessor,
     rtc_configuration=RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}),
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
 
-# Pass the checkbox value to the processor
 if ctx.video_processor:
-    ctx.video_processor.update_settings(mirror_check)
+    ctx.video_processor.update_settings(toggle)
 
-# --- 6. DEBUGGING HELP ---
-if not known_encodings:
-    st.error("⚠️ Database Empty!")
-    st.write("Ensure your files are named like `John_Doe.jpg` and inside the `ImagesAttendance` folder.")
-    # Debug: Show what the app sees
-    base_dir = os.path.dirname(__file__)
-    target_dir = os.path.join(base_dir, 'ImagesAttendance')
-    if os.path.exists(target_dir):
-        st.write(f"📂 Scanning folder: {target_dir}")
-        found_files = []
-        for r, d, f in os.walk(target_dir):
-            for file in f:
-                found_files.append(os.path.join(r, file))
-        st.write(f"Files found: {found_files}")
+# --- 6. DATABASE DIAGNOSTICS (CRITICAL FOR YOU) ---
+st.write("---")
+with st.expander("🔍 Troubleshooting & Database Logs", expanded=True):
+    if not known_encodings:
+        st.error("DATABASE IS EMPTY - See reasons below:")
     else:
-        st.write("❌ 'ImagesAttendance' folder not found.")
-
-st.markdown("<br><br><div style='text-align: center; color: #666;'>NBTI ICT Department © 2025</div>", unsafe_allow_html=True)
+        st.success("Database Loaded Successfully")
+        
+    # Show the log of what happened to each file
+    st.write("Processing Log:")
+    for log in debug_info:
+        if "❌" in log or "⚠️" in log:
+            st.warning(log)
+        else:
+            st.text(log)
