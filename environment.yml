@@ -3,12 +3,12 @@ channels:
   - conda-forge
 dependencies:
   - python=3.9
-  - dlib
+  - numpy
+  - dlib                  # Pre-built (Fast)
+  - face_recognition      # Pre-built (Fast - stops the compilation)
   - pip
   - pip:
     - opencv-python-headless
     - streamlit
-    - face-recognition
     - streamlit-webrtc
-    - numpy
     - av
