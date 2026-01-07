@@ -4,28 +4,89 @@ import face_recognition
 import os
 import av
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="NBTI Smart Attendance", layout="wide")
-st.title("NBTI ICT Department: Smart Attendance")
+# --- 1. CONFIGURATION & CSS STYLING ---
+st.set_page_config(page_title="NBTI Smart Attendance", layout="wide", page_icon="🛡️")
 
-# --- 1. LOAD DATABASE ---
+# Custom CSS for "Beige, Grey, Black, Green" Theme
+st.markdown("""
+    <style>
+    /* Main Background - Warm Beige */
+    .stApp {
+        background-color: #f4f4f0;
+    }
+    
+    /* Headings */
+    h1, h2, h3 {
+        color: #1a1a1a;
+        font-family: 'Helvetica Neue', sans-serif;
+        font-weight: 700;
+    }
+
+    /* Sidebar - Darker Grey */
+    [data-testid="stSidebar"] {
+        background-color: #2b2b2b;
+        color: #ffffff;
+    }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+        color: #e0e0e0;
+    }
+
+    /* Cards/Metrics - White with Shadow */
+    div[data-testid="stMetricValue"] {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        color: #2e7d32; /* Green Text */
+    }
+    
+    /* Buttons - Forest Green */
+    .stButton>button {
+        background-color: #2e7d32;
+        color: white;
+        border-radius: 8px;
+        border: none;
+        padding: 10px 24px;
+        font-weight: bold;
+    }
+    .stButton>button:hover {
+        background-color: #1b5e20;
+    }
+
+    /* Warning/Info Boxes */
+    .stAlert {
+        background-color: #ffffff;
+        border-left: 5px solid #2e7d32;
+        color: #333;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 2. LOAD DATABASE (Fixed Path) ---
 @st.cache_resource
 def load_encodings():
-    path = 'ImagesAttendance'
+    # Use relative path to ensure it works on Cloud
+    base_dir = os.path.dirname(__file__)
+    path = os.path.join(base_dir, 'ImagesAttendance')
+    
     encodings = []
     names = []
     roles = []
     ids = []
     
+    # Debug: Check if folder exists
     if not os.path.exists(path):
+        st.error(f"⚠️ Error: The folder '{path}' was not found.")
+        st.write(f"Current Directory: {os.getcwd()}")
+        st.write(f"Files in current dir: {os.listdir(base_dir)}")
         return [], [], [], []
         
     for root, dirs, files in os.walk(path):
         if root == path: continue
         
-        # Folder name format: NAME_DEPT_ROLE_ID
+        # Folder structure: NAME_DEPT_ROLE_ID
         folder_name = os.path.basename(root)
         parts = folder_name.split('_')
         
@@ -52,24 +113,37 @@ def load_encodings():
 
 known_encodings, known_names, known_roles, known_ids = load_encodings()
 
-if not known_encodings:
-    st.warning("Database empty. Please ensure 'ImagesAttendance' folder is uploaded correctly.")
+# --- 3. UI HEADER ---
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.title("NBTI Smart Attendance")
+    st.markdown("##### 📍 ICT Department | Facial Recognition System")
+with col2:
+    if known_names:
+        st.metric(label="Staff Loaded", value=len(set(known_ids)), delta="Active Database")
+    else:
+        st.metric(label="Status", value="Offline", delta_color="inverse")
 
-# --- 2. WEBRTC PROCESSOR ---
+st.markdown("---")
+
+# --- 4. VIDEO PROCESSOR ---
 class AttendanceProcessor(VideoProcessorBase):
     def __init__(self):
-        self.process_every = 5
+        self.process_every = 3  # Faster processing (check every 3rd frame)
         self.count = 0
         self.last_res = []
 
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
+        
+        # 1. MIRRORING
         img = cv2.flip(img, 1)
         self.count += 1
         
-        # Face Recognition Logic (Throttled)
+        # 2. DETECTION LOGIC
         if self.count % self.process_every == 0:
-            imgS = cv2.resize(img, (0,0), None, 0.25, 0.25)
+            # Increased scale from 0.25 to 0.5 for better detection
+            imgS = cv2.resize(img, (0,0), None, 0.5, 0.5) 
             imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
             
             locs = face_recognition.face_locations(imgS)
@@ -82,25 +156,67 @@ class AttendanceProcessor(VideoProcessorBase):
                 
                 name = "Unknown"
                 role = ""
+                
                 if True in matches:
                     matchIndex = np.argmin(dist)
-                    name = known_names[matchIndex]
-                    role = known_roles[matchIndex]
+                    # Double check tolerance to avoid false positives
+                    if dist[matchIndex] < 0.50:
+                        name = known_names[matchIndex]
+                        role = known_roles[matchIndex]
                 
-                # Scale up location
+                # Scale up location (x2 because we scaled down by 0.5)
                 y1, x2, y2, x1 = loc
-                self.last_res.append((name, role, (x1*4, y1*4, x2*4, y2*4)))
+                self.last_res.append((name, role, (x1*2, y1*2, x2*2, y2*2)))
 
-        # Draw results from cache
+        # 3. DRAWING (Beautified)
         for name, role, (x1, y1, x2, y2) in self.last_res:
-            color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
+            # Color: Green for Known, Red for Unknown
+            color = (46, 125, 50) if name != "Unknown" else (0, 0, 255) # RGB for Green/Red
+            
+            # Box
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(img, f"{name}", (x1, y2+30), cv2.FONT_HERSHEY_DUPLEX, 1, color, 2)
+            
+            # Label Background
+            cv2.rectangle(img, (x1, y2 - 35), (x2, y2), color, cv2.FILLED)
+            
+            # Name Text
+            cv2.putText(img, name, (x1 + 6, y2 - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
+            
+            # Role Text (Above box)
             if role:
-                cv2.putText(img, role, (x1, y2+60), cv2.FONT_HERSHEY_PLAIN, 1.5, color, 2)
+                cv2.putText(img, role, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# --- 3. RUN APP ---
-st.write("### 📸 Live Attendance Camera")
-webrtc_streamer(key="sample", video_processor_factory=AttendanceProcessor)
+# --- 5. MAIN LAYOUT ---
+c1, c2 = st.columns([2, 1])
+
+with c1:
+    st.info("System Ready. Please look directly at the camera.")
+    
+    # WebRTC Streamer with specific settings to try and force HD
+    webrtc_streamer(
+        key="attendance",
+        video_processor_factory=AttendanceProcessor,
+        rtc_configuration=RTCConfiguration(
+            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+        ),
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True,
+    )
+
+with c2:
+    st.markdown("### 📋 Quick Stats")
+    st.write("Live detection logs will appear here in future updates.")
+    
+    if not known_encodings:
+        st.error("No faces loaded.")
+        st.write("Please check the 'ImagesAttendance' folder.")
+    else:
+        st.success(f"Database Active: {len(known_encodings)} profiles")
+        with st.expander("View Staff List"):
+            st.write(list(set(known_names)))
+
+# --- 6. FOOTER ---
+st.markdown("---")
+st.markdown("<div style='text-align: center; color: #888;'>NBTI ICT Department © 2025 | Powered by Streamlit & OpenCV</div>", unsafe_allow_html=True)
