@@ -1,0 +1,4 @@
+Name,Department,Role,StaffID,Date,TimeIn,Status,ProofIn,TimeOut,ProofOut
+,,,,,,,,,
+BelloM,ICT,ProgrammeAnalystII,NBTIPER1190,08/01/2026,10:43:08,LATE,AttendanceProofs\2026-01-08\BelloM_NBTIPER1190\IN\LOGIN_10-43-08.jpg,10:44:19,AttendanceProofs\2026-01-08\BelloM_NBTIPER1190\OUT\SIGNOUT_10-44-19.jpg
+DavidAdamu,ICT,ProgrammeAnalystII,NBTIPER1197,08/01/2026,10:43:23,LATE,AttendanceProofs\2026-01-08\DavidAdamu_NBTIPER1197\IN\LOGIN_10-43-23.jpg,10:44:32,AttendanceProofs\2026-01-08\DavidAdamu_NBTIPER1197\OUT\SIGNOUT_10-44-32.jpg

@@ -1,0 +1,7 @@
+Name,Department,Role,StaffID,Date,Time,Status,ProofPath
+,,,,,,,
+DavidAdamu,ICT,ProgrammeAnalystII,NBTIPER1197,07/01/2026,11:20:52,LATE,AttendanceProofs\2026-01-07\NBTIPER1197_11-20-52.jpg
+BelloMuhammadMustapha,ICT,ProgrammeAnalystII,NBTIPER1190,07/01/2026,11:21:06,LATE,AttendanceProofs\2026-01-07\NBTIPER1190_11-21-06.jpg
+OKONFELIXSUNDAY,ICT,ProgrammeAnalystII,NBTIPERSP1167,07/01/2026,14:58:53,LATE,AttendanceProofs\2026-01-07\NBTIPERSP1167_14-58-53.jpg
+
+StephenBadu,ICT,ChiefComputerEngineer,NBTIAdminSP281,2026-01-07,15:25:33,LATE,AttendanceProofs\2026-01-07\NBTIAdminSP281_15-25-33.jpg
